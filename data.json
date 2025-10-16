@@ -1,0 +1,12 @@
+{
+  "_id": "user:001",
+  "_rev": "1-5947dfb4a6485f1af35d1ccb8316de17",
+  "type": "user",
+  "name": {
+    "first": "Pierre",
+    "last": "M"
+  },
+  "email": "pierre.matthey@heig-vd.ch",
+  "tags": ["student", "heig-vd"],
+  "created_at": "2025-10-09T12:00:00Z"
+}
