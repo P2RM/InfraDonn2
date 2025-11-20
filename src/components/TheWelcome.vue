@@ -28,11 +28,11 @@ const searchFirstName = ref('')
 
 const newPost = ref<Post>({
   type: 'post',
-  name: { first: '', last: '' },
-  email: '',
+  name: { first: 'sdf', last: 'dsf' },
+  email: 'dsfss@dfs.com',
   tags: [],
   created_at: '',
-  content: '',
+  content: 'asdsad',
 })
 
 const editingPost = ref<Post | null>(null)
@@ -140,7 +140,8 @@ const fetchData = () => {
     .allDocs({ include_docs: true })
     .then((result) => {
       postsData.value = result.rows.map((row) => row.doc as Post).filter((doc) => !!doc)
-      postsData.value.sort((a, b) => (a.name.first > b.name.first ? 1 : -1))
+      console.log(postsData.value)
+      //postsData.value.sort((a, b) => (a.name.first > b.name.first ? 1 : -1))
       console.log('✅ Données récupérées :', postsData.value)
     })
     .catch((error) => {
