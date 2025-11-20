@@ -3,7 +3,6 @@ import { onMounted, ref } from 'vue'
 import PouchDB from 'pouchdb'
 import pouchdbFind from 'pouchdb-find'
 
-// Activation du plugin
 PouchDB.plugin(pouchdbFind)
 
 declare interface Post {
@@ -20,16 +19,13 @@ declare interface Post {
   content?: string
 }
 
-// Bases locale/distante
 const localDB = ref<PouchDB.Database | null>(null)
 const remoteDB = ref<PouchDB.Database | null>(null)
 const storage = ref<PouchDB.Database | null>(null)
 const postsData = ref<Post[]>([])
 
-// Recherche prénom indexé
 const searchFirstName = ref('')
 
-// Modèle pour le formulaire d'ajout - CORRIGÉ, structure irréprochable
 const newPost = ref<Post>({
   type: 'post',
   name: { first: '', last: '' },
@@ -39,10 +35,8 @@ const newPost = ref<Post>({
   content: '',
 })
 
-// Modèle du formulaire de modification
 const editingPost = ref<Post | null>(null)
 
-// Mode édition
 const startEdit = (post: Post) => {
   editingPost.value = { ...post }
 }
@@ -50,7 +44,6 @@ const cancelEdit = () => {
   editingPost.value = null
 }
 
-// Factory (prénoms protégés)
 const isPopulating = ref(false)
 const populateFactory = async (nb = 100) => {
   if (!storage.value) return
@@ -97,7 +90,6 @@ const populateFactory = async (nb = 100) => {
   isPopulating.value = false
 }
 
-// Création index prénom
 const ensureIndex = async () => {
   if (!storage.value) return
   try {
@@ -110,7 +102,6 @@ const ensureIndex = async () => {
   }
 }
 
-// Recherche indexée prénom (champ insensible à la casse)
 const searchByFirstName = async () => {
   if (!storage.value) return
   await ensureIndex()
@@ -132,7 +123,6 @@ const searchByFirstName = async () => {
   }
 }
 
-// Initialisation base (toujours appelée)
 const initDatabase = () => {
   localDB.value = new PouchDB('local_db')
   remoteDB.value = new PouchDB('http://admin:admin@127.0.0.1:5984/test_database')
@@ -141,7 +131,6 @@ const initDatabase = () => {
   console.log('Bases locale et distante initialisées')
 }
 
-// Liste complète des documents
 const fetchData = () => {
   if (!storage.value) {
     console.warn('Base de données non initialisée')
@@ -159,7 +148,6 @@ const fetchData = () => {
     })
 }
 
-// Suppression
 const deleteDocument = (docId: string, docRev: string) => {
   if (!storage.value) {
     console.warn('Base de données non initialisée')
@@ -176,7 +164,6 @@ const deleteDocument = (docId: string, docRev: string) => {
     })
 }
 
-// Mise à jour
 const updateDocument = () => {
   if (!storage.value) {
     console.warn('Base de données non initialisée')
@@ -198,13 +185,11 @@ const updateDocument = () => {
     })
 }
 
-// Ajout — CORRECTION : structure obligatoire « first » et « email »
 const addDocument = () => {
   if (!storage.value) {
     console.warn('Base de données non initialisée')
     return
   }
-  // Sécurité de vérif
   if (!newPost.value.name.first || !newPost.value.email) {
     alert('Prénom et email obligatoires')
     return
@@ -239,7 +224,6 @@ const addDocument = () => {
     })
 }
 
-// Synchronisation
 const syncDatabases = () => {
   if (!localDB.value || !remoteDB.value) {
     alert('Bases non initialisées')
@@ -272,9 +256,7 @@ onMounted(() => {
   <h1>Base de données PouchDB</h1>
 
   <div style="margin-bottom: 1rem; padding: 0.5rem; background: #f7f7ff; border-radius: 8px">
-    <button @click="populateFactory()" :disabled="isPopulating">
-      Générer 100 documents (Factory)
-    </button>
+    <button @click="populateFactory()" :disabled="isPopulating">Générer 100 documents</button>
     <span v-if="isPopulating" style="margin-left: 1rem">Chargement...</span>
     <button @click="ensureIndex" style="margin-left: 1rem">Créer l'index prénom (si besoin)</button>
     <input
