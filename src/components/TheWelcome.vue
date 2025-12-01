@@ -2,7 +2,9 @@
 import { onMounted, ref } from 'vue'
 import PouchDB from 'pouchdb'
 import pouchdbFind from 'pouchdb-find'
+import findPlugin from 'pouchdb-find'
 
+PouchDB.plugin(findPlugin)
 PouchDB.plugin(pouchdbFind)
 
 declare interface Post {
@@ -38,6 +40,7 @@ const factoryCount = ref(100)
 const searchFirstName = ref('')
 const searchQuery = ref('')
 const isOnline = ref(true)
+
 const newPost = ref<Post>({
   type: 'post',
   name: { first: '', last: '' },
@@ -46,13 +49,18 @@ const newPost = ref<Post>({
   created_at: '',
   content: '',
 })
+
 const editingPost = ref<Post | null>(null)
+
 const newCommentContent = ref('')
 const commentAuthor = ref('')
 const commentEditing = ref<{ _id: string; content: string } | null>(null)
 const commentList = ref<Comment[]>([])
 const currentPostId = ref<string | null>(null)
 const isPopulating = ref(false)
+
+// Premier commentaire par post (clé = postId)
+const firstCommentsByPost = ref<Record<string, Comment | null>>({})
 
 const toggleMode = () => {
   isOnline.value = !isOnline.value
@@ -63,47 +71,35 @@ const toggleMode = () => {
 const populateFactory = async (nb = 100) => {
   if (!storage.value) return
   isPopulating.value = true
-  const fakeNames: string[] = [
-    'Alice',
-    'Bob',
-    'Charlie',
-    'David',
-    'Eva',
-    'François',
-    'Gus',
-    'Henry',
-    'Iris',
-    'Jack',
-    'Karim',
-    'Léna',
-    'Maria',
-    'Nina',
-    'Oscar',
-    'Paul',
-    'Quentin',
-    'Rita',
-    'Sophie',
-    'Tom',
-  ]
-  const bulkDocs: Post[] = []
-  for (let i = 0; i < nb; i++) {
-    const firstName = fakeNames[i % fakeNames.length] || 'Anonyme'
-    bulkDocs.push({
-      type: 'post',
-      name: {
-        first: firstName + (Math.floor(i / fakeNames.length) || ''),
-        last: 'Testeur' + i,
-      },
-      email: `testeur${i}@exemple.com`,
-      tags: ['factory', 'test'],
-      created_at: new Date(Date.now() - 1000 * 60 * 60 * 24 * i).toISOString(),
-      content: 'Document généré #' + i,
-      likes: Math.floor(Math.random() * 20),
-    })
+  try {
+    const fakeNames: string[] = [
+      /* ... tes prénoms ... */
+    ]
+    const bulkDocs: Post[] = []
+    for (let i = 0; i < nb; i++) {
+      const firstName = fakeNames[i % fakeNames.length] || 'Anonyme'
+      bulkDocs.push({
+        type: 'post',
+        name: {
+          first: firstName + (Math.floor(i / fakeNames.length) || ''),
+          last: 'Testeur' + i,
+        },
+        email: `testeur${i}@exemple.com`,
+        tags: ['factory', 'test'],
+        created_at: new Date(Date.now() - 1000 * 60 * 60 * 24 * i).toISOString(),
+        content: 'Document généré #' + i,
+        likes: Math.floor(Math.random() * 20),
+      })
+    }
+    console.log('👉 bulkDocs start', nb)
+    const res = await storage.value.bulkDocs(bulkDocs)
+    console.log('✅ bulkDocs ok', res)
+    await fetchData()
+  } catch (err) {
+    console.error('❌ bulkDocs error', err)
+  } finally {
+    isPopulating.value = false
   }
-  await storage.value.bulkDocs(bulkDocs)
-  fetchData()
-  isPopulating.value = false
 }
 
 const ensureIndex = async () => {
@@ -132,7 +128,7 @@ const searchByFirstName = async () => {
       },
       use_index: 'firstName-index',
     })
-    postsData.value = result.docs
+    postsData.value = result.docs as Post[]
   } catch (e) {
     console.error('Recherche impossible', e)
   }
@@ -172,23 +168,46 @@ const deleteAllDocuments = async () => {
   }
 }
 
-const fetchData = () => {
+// Premier commentaire pour un post (tout via Mango)
+const fetchFirstCommentForPost = async (postId: string) => {
+  if (!storage.value) return
+  await (storage.value as any).createIndex({
+    index: { fields: ['type', 'postId', 'created_at'] },
+  })
+  const result = await (storage.value as any).find({
+    selector: { type: 'comment', postId },
+    sort: [{ created_at: 'asc' }],
+    limit: 1,
+  })
+  firstCommentsByPost.value[postId] = result.docs[0] || null
+}
+
+// Chargement des posts via db.find (aucun tri JS)
+const fetchData = async () => {
   if (!storage.value) {
     console.warn('Base de données non initialisée')
     return
   }
-  storage.value
-    .allDocs({ include_docs: true })
-    .then((result) => {
-      postsData.value = result.rows
-        .map((row) => row.doc as Post)
-        .filter((doc) => !!doc)
-        .filter((doc) => !doc._id?.startsWith('_'))
-      console.log('✅ Données récupérées :', postsData.value)
+  try {
+    await (storage.value as any).createIndex({
+      index: { fields: ['type', 'created_at'] },
     })
-    .catch((error) => {
-      console.error('❌ Erreur lors de la récupération :', error)
+    const result = await (storage.value as any).find({
+      selector: { type: 'post' },
+      sort: [{ created_at: 'desc' }],
     })
+    postsData.value = (result.docs as Post[]).filter((doc) => !doc._id?.startsWith('_'))
+    console.log('✅ Données récupérées (Mango) :', postsData.value)
+
+    firstCommentsByPost.value = {}
+    for (const post of postsData.value) {
+      if (post._id) {
+        await fetchFirstCommentForPost(post._id)
+      }
+    }
+  } catch (error) {
+    console.error('❌ Erreur fetchData Mango :', error)
+  }
 }
 
 const startEdit = (post: Post) => {
@@ -294,6 +313,9 @@ const showComments = async (postId: string) => {
 
 const fetchCommentsFor = async (postId: string) => {
   if (!storage.value) return
+  await (storage.value as any).createIndex({
+    index: { fields: ['type', 'postId', 'created_at'] },
+  })
   const result = await (storage.value as any).find({
     selector: {
       type: 'comment',
@@ -301,7 +323,7 @@ const fetchCommentsFor = async (postId: string) => {
     },
     sort: [{ created_at: 'asc' }],
   })
-  commentList.value = result.docs
+  commentList.value = result.docs as Comment[]
 }
 
 const saveComment = async (postId: string) => {
@@ -358,17 +380,21 @@ const searchPosts = async () => {
       content: { $regex: keyword },
     },
   })
-  postsData.value = result.docs
+  postsData.value = result.docs as Post[]
 }
 
+// Top 10 plus likés: tri & limit via Mango (aucun sort JS)
 const sortByLikes = async () => {
   if (!storage.value) return
-  await storage.value.createIndex({ index: { fields: ['likes'] } })
-  const result = await (storage.value as any).find({
-    selector: { type: 'post', likes: { $gte: null } },
-    sort: [{ likes: 'desc' }],
+  await (storage.value as any).createIndex({
+    index: { fields: ['type', 'likes'] },
   })
-  postsData.value = result.docs
+  const result = await (storage.value as any).find({
+    selector: { type: 'post', likes: { $gte: 0 } },
+    sort: [{ likes: 'desc' }],
+    limit: 10,
+  })
+  postsData.value = result.docs as Post[]
 }
 
 const syncDatabases = () => {
@@ -419,7 +445,7 @@ onMounted(() => {
           placeholder="🔍 Rechercher par contenu..."
         />
         <button @click="searchPosts" class="btn-primary">Rechercher</button>
-        <button @click="sortByLikes" class="btn-secondary">Trier par likes</button>
+        <button @click="sortByLikes" class="btn-secondary">Top 10 par likes</button>
       </div>
 
       <div class="search-bar">
@@ -492,11 +518,20 @@ onMounted(() => {
         <div v-if="!editingPost || editingPost._id !== post._id">
           <div class="post-header">
             <h2>{{ post.name.first }} {{ post.name.last }}</h2>
-            <span class="post-date">{{ new Date(post.created_at).toLocaleDateString() }}</span>
+            <span class="post-date">
+              {{ new Date(post.created_at).toLocaleDateString() }}
+            </span>
           </div>
           <p class="post-email">{{ post.email }}</p>
           <p class="post-tags">{{ post.tags.join(', ') }}</p>
           <p v-if="post.content" class="post-content">{{ post.content }}</p>
+
+          <!-- Premier commentaire (via Mango) -->
+          <p v-if="firstCommentsByPost[post._id!]">
+            <strong>1er commentaire :</strong>
+            {{ firstCommentsByPost[post._id!]?.author }} –
+            {{ firstCommentsByPost[post._id!]?.content }}
+          </p>
 
           <div class="post-actions">
             <button @click="startEdit(post)" class="btn-edit">✏️ Modifier</button>
@@ -509,7 +544,7 @@ onMounted(() => {
               @click="showComments(post._id!)"
               class="btn-comment"
             >
-              💬 Commentaires
+              💬 Voir tous les commentaires
             </button>
           </div>
         </div>
@@ -964,7 +999,7 @@ button {
 
 .comment span {
   flex: 1;
-  color: #4a5568;
+  color: #000;
 }
 
 .comment-actions {
@@ -1070,5 +1105,9 @@ button {
   .edit-actions {
     flex-direction: column;
   }
+}
+
+.post-card p {
+  color: #000;
 }
 </style>
