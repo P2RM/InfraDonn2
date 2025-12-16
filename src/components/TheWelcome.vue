@@ -1,11 +1,9 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import PouchDB from 'pouchdb'
-import pouchdbFind from 'pouchdb-find'
-import findPlugin from 'pouchdb-find'
+import PouchDBFind from 'pouchdb-find'
 
-PouchDB.plugin(findPlugin)
-PouchDB.plugin(pouchdbFind)
+PouchDB.plugin(PouchDBFind)
 
 declare interface Post {
   _id?: string
@@ -32,9 +30,14 @@ declare interface Comment {
   created_at: string
 }
 
-const localDB = ref<PouchDB.Database | null>(null)
-const remoteDB = ref<PouchDB.Database | null>(null)
-const storage = ref<PouchDB.Database | null>(null)
+const localPostsDB = ref<PouchDB.Database | null>(null)
+const remotePostsDB = ref<PouchDB.Database | null>(null)
+const postsStorage = ref<PouchDB.Database | null>(null)
+
+const localCommentsDB = ref<PouchDB.Database | null>(null)
+const remoteCommentsDB = ref<PouchDB.Database | null>(null)
+const commentsStorage = ref<PouchDB.Database | null>(null)
+
 const postsData = ref<Post[]>([])
 const factoryCount = ref(100)
 const searchFirstName = ref('')
@@ -59,21 +62,60 @@ const commentList = ref<Comment[]>([])
 const currentPostId = ref<string | null>(null)
 const isPopulating = ref(false)
 
-// Premier commentaire par post (clé = postId)
 const firstCommentsByPost = ref<Record<string, Comment | null>>({})
 
-const toggleMode = () => {
+const ensureIndexes = async () => {
+  try {
+    if (postsStorage.value) {
+      const db: any = postsStorage.value
+      await db.createIndex({ index: { fields: ['type', 'created_at'] } })
+      await db.createIndex({ index: { fields: ['type', 'likes'] } })
+      await db.createIndex({ index: { fields: ['name.first'] } })
+      await db.createIndex({ index: { fields: ['type', 'content'] } })
+    }
+
+    if (commentsStorage.value) {
+      const db: any = commentsStorage.value
+      await db.createIndex({ index: { fields: ['type', 'postId', 'created_at'] } })
+    }
+  } catch (e) {
+    console.error('❌ Erreur index', e)
+  }
+}
+
+const toggleMode = async () => {
   isOnline.value = !isOnline.value
-  storage.value = isOnline.value ? remoteDB.value : localDB.value
+  postsStorage.value = isOnline.value ? remotePostsDB.value : localPostsDB.value
+  commentsStorage.value = isOnline.value ? remoteCommentsDB.value : localCommentsDB.value
+  await ensureIndexes()
   fetchData()
 }
 
 const populateFactory = async (nb = 100) => {
-  if (!storage.value) return
+  if (!postsStorage.value) return
   isPopulating.value = true
   try {
     const fakeNames: string[] = [
-      /* ... tes prénoms ... */
+      'Alice',
+      'Bob',
+      'Charlie',
+      'David',
+      'Eva',
+      'François',
+      'Gus',
+      'Henry',
+      'Iris',
+      'Jack',
+      'Karim',
+      'Léna',
+      'Maria',
+      'Nina',
+      'Oscar',
+      'Paul',
+      'Quentin',
+      'Rita',
+      'Sophie',
+      'Tom',
     ]
     const bulkDocs: Post[] = []
     for (let i = 0; i < nb; i++) {
@@ -92,7 +134,7 @@ const populateFactory = async (nb = 100) => {
       })
     }
     console.log('👉 bulkDocs start', nb)
-    const res = await storage.value.bulkDocs(bulkDocs)
+    const res = await postsStorage.value.bulkDocs(bulkDocs)
     console.log('✅ bulkDocs ok', res)
     await fetchData()
   } catch (err) {
@@ -102,31 +144,20 @@ const populateFactory = async (nb = 100) => {
   }
 }
 
-const ensureIndex = async () => {
-  if (!storage.value) return
-  try {
-    await (storage.value as any).createIndex({
-      index: { fields: ['name.first'] },
-    })
-  } catch (e) {
-    console.error('Erreur index', e)
-  }
-}
-
 const searchByFirstName = async () => {
-  if (!storage.value) return
-  await ensureIndex()
+  if (!postsStorage.value) return
+  await ensureIndexes()
   const filter = searchFirstName.value.trim()
   if (!filter) {
     fetchData()
     return
   }
   try {
-    const result = await (storage.value as any).find({
+    const result = await (postsStorage.value as any).find({
       selector: {
-        'name.first': { $regex: `(?i)^${filter}` },
+        type: 'post',
+        'name.first': { $regex: `^${filter}` },
       },
-      use_index: 'firstName-index',
     })
     postsData.value = result.docs as Post[]
   } catch (e) {
@@ -134,47 +165,50 @@ const searchByFirstName = async () => {
   }
 }
 
-const initDatabase = () => {
-  localDB.value = new PouchDB('local_db')
-  remoteDB.value = new PouchDB('http://admin:admin@127.0.0.1:5984/test_database')
-  storage.value = isOnline.value ? remoteDB.value : localDB.value
-  ensureIndex()
-  console.log('Bases locale et distante initialisées')
+const initDatabase = async () => {
+  localPostsDB.value = new PouchDB('local_posts_db')
+  localCommentsDB.value = new PouchDB('local_comments_db')
+
+  remotePostsDB.value = new PouchDB('http://admin:admin@127.0.0.1:5984/posts_db')
+  remoteCommentsDB.value = new PouchDB('http://admin:admin@127.0.0.1:5984/comments_db')
+
+  postsStorage.value = isOnline.value ? remotePostsDB.value : localPostsDB.value
+  commentsStorage.value = isOnline.value ? remoteCommentsDB.value : localCommentsDB.value
+
+  await ensureIndexes()
+  console.log('✅ Bases POSTS et COMMENTS initialisées')
 }
 
 const deleteAllDocuments = async () => {
-  if (!storage.value) {
-    console.warn('Base de données non initialisée')
-    return
-  }
   try {
-    const result = await storage.value.allDocs({ include_docs: true })
-    const toDelete = result.rows
-      .map((row) => row.doc)
-      .filter((doc) => !!doc && !doc._id?.startsWith('_'))
-      .map((doc) => ({
-        ...doc,
-        _deleted: true,
-      }))
-    if (toDelete.length) {
-      await storage.value.bulkDocs(toDelete)
-      fetchData()
-      console.log('✅ Tous les documents utilisateur supprimés')
-    } else {
-      console.log('Aucun document à supprimer')
+    if (postsStorage.value) {
+      const result = await postsStorage.value.allDocs({ include_docs: true })
+      const toDelete = result.rows
+        .map((row) => row.doc)
+        .filter((doc) => !!doc && !doc._id?.startsWith('_'))
+        .map((doc: any) => ({ ...doc, _deleted: true }))
+      if (toDelete.length) await postsStorage.value.bulkDocs(toDelete)
     }
+
+    if (commentsStorage.value) {
+      const result = await commentsStorage.value.allDocs({ include_docs: true })
+      const toDelete = result.rows
+        .map((row) => row.doc)
+        .filter((doc) => !!doc && !doc._id?.startsWith('_'))
+        .map((doc: any) => ({ ...doc, _deleted: true }))
+      if (toDelete.length) await commentsStorage.value.bulkDocs(toDelete)
+    }
+
+    fetchData()
   } catch (err) {
     console.error('Erreur suppression globale', err)
   }
 }
 
-// Premier commentaire pour un post (tout via Mango)
 const fetchFirstCommentForPost = async (postId: string) => {
-  if (!storage.value) return
-  await (storage.value as any).createIndex({
-    index: { fields: ['type', 'postId', 'created_at'] },
-  })
-  const result = await (storage.value as any).find({
+  if (!commentsStorage.value) return
+  await ensureIndexes()
+  const result = await (commentsStorage.value as any).find({
     selector: { type: 'comment', postId },
     sort: [{ created_at: 'asc' }],
     limit: 1,
@@ -182,22 +216,19 @@ const fetchFirstCommentForPost = async (postId: string) => {
   firstCommentsByPost.value[postId] = result.docs[0] || null
 }
 
-// Chargement des posts via db.find (aucun tri JS)
 const fetchData = async () => {
-  if (!storage.value) {
-    console.warn('Base de données non initialisée')
+  if (!postsStorage.value) {
+    console.warn('Base POSTS non initialisée')
     return
   }
   try {
-    await (storage.value as any).createIndex({
-      index: { fields: ['type', 'created_at'] },
-    })
-    const result = await (storage.value as any).find({
+    await ensureIndexes()
+    const result = await (postsStorage.value as any).find({
       selector: { type: 'post' },
       sort: [{ created_at: 'desc' }],
     })
     postsData.value = (result.docs as Post[]).filter((doc) => !doc._id?.startsWith('_'))
-    console.log('✅ Données récupérées (Mango) :', postsData.value)
+    console.log('✅ Données POSTS récupérées (Mango) :', postsData.value)
 
     firstCommentsByPost.value = {}
     for (const post of postsData.value) {
@@ -211,18 +242,18 @@ const fetchData = async () => {
 }
 
 const startEdit = (post: Post) => {
-  editingPost.value = { ...post }
+  editingPost.value = { ...post, name: { ...post.name } }
 }
 const cancelEdit = () => {
   editingPost.value = null
 }
 
 const deleteDocument = (docId: string, docRev: string) => {
-  if (!storage.value) {
-    console.warn('Base de données non initialisée')
+  if (!postsStorage.value) {
+    console.warn('Base POSTS non initialisée')
     return
   }
-  storage.value
+  postsStorage.value
     .remove(docId, docRev)
     .then((response) => {
       console.log('✅ Document supprimé :', response)
@@ -234,15 +265,15 @@ const deleteDocument = (docId: string, docRev: string) => {
 }
 
 const updateDocument = () => {
-  if (!storage.value) {
-    console.warn('Base de données non initialisée')
+  if (!postsStorage.value) {
+    console.warn('Base POSTS non initialisée')
     return
   }
   if (!editingPost.value || !editingPost.value._id || !editingPost.value._rev) {
     console.warn('⚠️ Le document doit avoir un _id et un _rev pour être mis à jour')
     return
   }
-  storage.value
+  postsStorage.value
     .put(editingPost.value)
     .then((response) => {
       console.log('✅ Document mis à jour :', response)
@@ -255,8 +286,8 @@ const updateDocument = () => {
 }
 
 const addDocument = () => {
-  if (!storage.value) {
-    console.warn('Base de données non initialisée')
+  if (!postsStorage.value) {
+    console.warn('Base POSTS non initialisée')
     return
   }
   if (!newPost.value.name.first || !newPost.value.email) {
@@ -275,7 +306,7 @@ const addDocument = () => {
     content: newPost.value.content,
     likes: 0,
   }
-  storage.value
+  postsStorage.value
     .post(postToAdd)
     .then((response) => {
       console.log('✅ Document ajouté :', response)
@@ -296,10 +327,10 @@ const addDocument = () => {
 }
 
 const like = async (post: Post) => {
-  if (!storage.value || !post._id || !post._rev) return
+  if (!postsStorage.value || !post._id || !post._rev) return
   try {
     const nbLikes = typeof post.likes === 'number' ? post.likes + 1 : 1
-    await storage.value.put({ ...post, likes: nbLikes })
+    await postsStorage.value.put({ ...post, likes: nbLikes })
     fetchData()
   } catch (error) {
     console.error('Erreur like:', error)
@@ -312,11 +343,9 @@ const showComments = async (postId: string) => {
 }
 
 const fetchCommentsFor = async (postId: string) => {
-  if (!storage.value) return
-  await (storage.value as any).createIndex({
-    index: { fields: ['type', 'postId', 'created_at'] },
-  })
-  const result = await (storage.value as any).find({
+  if (!commentsStorage.value) return
+  await ensureIndexes()
+  const result = await (commentsStorage.value as any).find({
     selector: {
       type: 'comment',
       postId,
@@ -327,11 +356,11 @@ const fetchCommentsFor = async (postId: string) => {
 }
 
 const saveComment = async (postId: string) => {
-  if (!storage.value) return
+  if (!commentsStorage.value) return
   try {
     if (commentEditing.value) {
-      const doc = await storage.value.get(commentEditing.value._id)
-      await storage.value.put({ ...doc, content: newCommentContent.value })
+      const doc = await commentsStorage.value.get(commentEditing.value._id)
+      await commentsStorage.value.put({ ...doc, content: newCommentContent.value })
       commentEditing.value = null
       newCommentContent.value = ''
     } else {
@@ -342,7 +371,7 @@ const saveComment = async (postId: string) => {
         content: newCommentContent.value,
         created_at: new Date().toISOString(),
       }
-      await storage.value.post(comment)
+      await commentsStorage.value.post(comment)
       newCommentContent.value = ''
       commentAuthor.value = ''
     }
@@ -354,9 +383,9 @@ const saveComment = async (postId: string) => {
 }
 
 const deleteComment = async (_id: string, _rev: string) => {
-  if (!storage.value || !currentPostId.value) return
+  if (!commentsStorage.value || !currentPostId.value) return
   try {
-    await storage.value.remove(_id, _rev)
+    await commentsStorage.value.remove(_id, _rev)
     await fetchCommentsFor(currentPostId.value)
     fetchData()
   } catch (error) {
@@ -370,11 +399,11 @@ const startEditComment = (comment: Comment) => {
 }
 
 const searchPosts = async () => {
-  if (!storage.value) return
+  if (!postsStorage.value) return
   const keyword = searchQuery.value.trim()
   if (!keyword) return fetchData()
-  await storage.value.createIndex({ index: { fields: ['type', 'content'] } })
-  const result = await (storage.value as any).find({
+  await ensureIndexes()
+  const result = await (postsStorage.value as any).find({
     selector: {
       type: 'post',
       content: { $regex: keyword },
@@ -383,13 +412,10 @@ const searchPosts = async () => {
   postsData.value = result.docs as Post[]
 }
 
-// Top 10 plus likés: tri & limit via Mango (aucun sort JS)
 const sortByLikes = async () => {
-  if (!storage.value) return
-  await (storage.value as any).createIndex({
-    index: { fields: ['type', 'likes'] },
-  })
-  const result = await (storage.value as any).find({
+  if (!postsStorage.value) return
+  await ensureIndexes()
+  const result = await (postsStorage.value as any).find({
     selector: { type: 'post', likes: { $gte: 0 } },
     sort: [{ likes: 'desc' }],
     limit: 10,
@@ -397,25 +423,20 @@ const sortByLikes = async () => {
   postsData.value = result.docs as Post[]
 }
 
-const syncDatabases = () => {
-  if (!localDB.value || !remoteDB.value) {
+const syncDatabases = async () => {
+  if (!localPostsDB.value || !remotePostsDB.value || !localCommentsDB.value || !remoteCommentsDB.value) {
     alert('Bases non initialisées')
     return
   }
-  localDB.value
-    .sync(remoteDB.value, {
-      live: false,
-      retry: false,
-    })
-    .on('complete', (info) => {
-      console.log('✅ Synchronisation complète:', info)
-      fetchData()
-      alert('Synchronisation terminée avec succès!')
-    })
-    .on('error', (err) => {
-      console.error('❌ Erreur lors de la synchronisation:', err)
-      alert('Erreur lors de la synchronisation')
-    })
+  try {
+    await localPostsDB.value.sync(remotePostsDB.value, { live: false, retry: false })
+    await localCommentsDB.value.sync(remoteCommentsDB.value, { live: false, retry: false })
+    fetchData()
+    alert('Synchronisation terminée avec succès!')
+  } catch (err) {
+    console.error('❌ Erreur lors de la synchronisation:', err)
+    alert('Erreur lors de la synchronisation')
+  }
 }
 
 onMounted(() => {
@@ -526,7 +547,6 @@ onMounted(() => {
           <p class="post-tags">{{ post.tags.join(', ') }}</p>
           <p v-if="post.content" class="post-content">{{ post.content }}</p>
 
-          <!-- Premier commentaire (via Mango) -->
           <p v-if="firstCommentsByPost[post._id!]">
             <strong>1er commentaire :</strong>
             {{ firstCommentsByPost[post._id!]?.author }} –
