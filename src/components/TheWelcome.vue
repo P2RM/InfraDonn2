@@ -787,25 +787,71 @@ onMounted(() => {
         </div>
 
         <div v-else class="edit-mode">
-          <h3>✏️ Modifier le document</h3>
-          <div class="form-grid">
-            <div class="form-group">
-              <label>Prénom</label>
-              <input v-model="editingPost.name.first" required />
-            </div>
-            <div class="form-group">
-              <label>Nom</label>
-              <input v-model="editingPost.name.last" />
-            </div>
-          </div>
+  <h3>✏️ Modifier le document</h3>
+
+  <div class="form-grid">
+    <div class="form-group">
+      <label>Prénom</label>
+      <input v-model="editingPost.name.first" required />
+    </div>
+    <div class="form-group">
+      <label>Nom</label>
+      <input v-model="editingPost.name.last" />
+    </div>
+  </div>
+
+  <div class="form-group">
+    <label>Email</label>
+    <input v-model="editingPost.email" type="email" required />
+  </div>
+
+  <div class="form-group">
+    <label>Contenu</label>
+    <textarea v-model="editingPost.content" rows="3"></textarea>
+  </div>
+  <div class="form-group">
+    <label>Pièce jointe (optionnelle)</label>
+    <input type="file" @change="handleFileChange" />
+
+    <div v-if="attachmentPreview" style="margin-top:8px">
+      <strong>Aperçu:</strong>
+      <div style="margin-top:6px">
+        <img
+          v-if="attachmentPreviewType && attachmentPreviewType.startsWith('image/')"
+          :src="attachmentPreview"
+          alt="preview"
+          style="max-width:200px; max-height:150px;"
+        />
+        <a v-else :href="attachmentPreview" target="_blank">
+          Ouvrir la pièce jointe
+        </a>
+      </div>
+    </div>
+  </div>
+
+  <div class="edit-actions">
+    <button @click="updateDocument()" class="btn-save">✓ Enregistrer</button>
+    <button @click="cancelEdit()" class="btn-cancel">✕ Annuler</button>
+  </div>
+</div>
+
           <div class="form-group">
-            <label>Email</label>
-            <input v-model="editingPost.email" type="email" required />
-          </div>
-          <div class="form-group">
-            <label>Contenu</label>
-            <textarea v-model="editingPost.content" rows="3"></textarea>
-          </div>
+  <label>Pièce jointe (optionnelle)</label>
+  <input type="file" @change="handleFileChange" />
+
+  <div v-if="attachmentPreview" style="margin-top:8px">
+    <strong>Aperçu:</strong>
+    <div style="margin-top:6px">
+      <img
+        v-if="attachmentPreviewType && attachmentPreviewType.startsWith('image/')"
+        :src="attachmentPreview"
+        alt="preview"
+        style="max-width:200px; max-height:150px;"
+      />
+      <a v-else :href="attachmentPreview" target="_blank">Ouvrir la pièce jointe</a>
+    </div>
+  </div>
+</div>
             <div class="form-group">
               <label>Pièce jointe (optionnelle)</label>
               <input type="file" @change="handleFileChange" />
