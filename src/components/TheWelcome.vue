@@ -136,7 +136,6 @@ const closeInlinePreview = () => {
   showInlinePreview.value = false
 }
 
-
 const removeAttachment = async (postId: string, attachmentName: string) => {
   if (!postsStorage.value) return
   try {
@@ -488,6 +487,7 @@ const addDocument = () => {
         content: '',
         likes: 0,
       }
+      clearSelectedAttachment()
     } catch (error) {
       console.error("❌ Erreur lors de l'ajout du document :", error)
     }
@@ -654,21 +654,13 @@ onMounted(() => {
 
     <div class="search-section">
       <div class="search-bar">
-        <input
-          v-model="searchQuery"
-          @keyup.enter="searchPosts"
-          placeholder="🔍 Rechercher par contenu..."
-        />
+        <input v-model="searchQuery" @keyup.enter="searchPosts" placeholder="🔍 Rechercher par contenu..." />
         <button @click="searchPosts" class="btn-primary">Rechercher</button>
         <button @click="sortByLikes" class="btn-secondary">Top 10 par likes</button>
       </div>
 
       <div class="search-bar">
-        <input
-          v-model="searchFirstName"
-          @input="searchByFirstName"
-          placeholder="🔍 Rechercher par prénom..."
-        />
+        <input v-model="searchFirstName" @input="searchByFirstName" placeholder="🔍 Rechercher par prénom..." />
         <button
           v-if="searchFirstName"
           @click="
@@ -686,13 +678,7 @@ onMounted(() => {
 
     <div class="actions">
       <div class="factory-section">
-        <input
-          type="number"
-          v-model.number="factoryCount"
-          min="1"
-          max="999"
-          class="factory-input"
-        />
+        <input type="number" v-model.number="factoryCount" min="1" max="999" class="factory-input" />
         <button @click="populateFactory(factoryCount)" :disabled="isPopulating" class="btn-primary">
           {{ isPopulating ? 'Génération...' : `Générer ${factoryCount} docs` }}
         </button>
@@ -720,23 +706,26 @@ onMounted(() => {
       </div>
       <div class="form-group">
         <label>Contenu</label>
-        <textarea
-          v-model="newPost.content"
-          rows="3"
-          placeholder="Entrez votre contenu..."
-        ></textarea>
+        <textarea v-model="newPost.content" rows="3" placeholder="Entrez votre contenu..."></textarea>
       </div>
-          <div class="form-group">
-            <label>Pièce jointe (optionnelle)</label>
-            <input type="file" @change="handleFileChange" />
-            <div v-if="attachmentPreview" style="margin-top:8px">
-              <strong>Aperçu:</strong>
-              <div style="margin-top:6px">
-                <img v-if="attachmentPreviewType && attachmentPreviewType.startsWith('image/')" :src="attachmentPreview" alt="preview" style="max-width:200px; max-height:150px;" />
-                <a v-else :href="attachmentPreview" target="_blank">Ouvrir la pièce jointe</a>
-              </div>
-            </div>
+
+      <div class="form-group">
+        <label>Pièce jointe (optionnelle)</label>
+        <input type="file" @change="handleFileChange" />
+        <div v-if="attachmentPreview" style="margin-top:8px">
+          <strong>Aperçu:</strong>
+          <div style="margin-top:6px">
+            <img
+              v-if="attachmentPreviewType && attachmentPreviewType.startsWith('image/')"
+              :src="attachmentPreview"
+              alt="preview"
+              style="max-width:200px; max-height:150px;"
+            />
+            <a v-else :href="attachmentPreview" target="_blank">Ouvrir la pièce jointe</a>
           </div>
+        </div>
+      </div>
+
       <button type="submit" class="btn-primary">Ajouter</button>
     </form>
 
@@ -745,124 +734,79 @@ onMounted(() => {
         <div v-if="!editingPost || editingPost._id !== post._id">
           <div class="post-header">
             <h2>{{ post.name.first }} {{ post.name.last }}</h2>
-            <span class="post-date">
-              {{ new Date(post.created_at).toLocaleDateString() }}
-            </span>
+            <span class="post-date">{{ new Date(post.created_at).toLocaleDateString() }}</span>
           </div>
           <p class="post-email">{{ post.email }}</p>
           <p class="post-tags">{{ post.tags.join(', ') }}</p>
           <p v-if="post.content" class="post-content">{{ post.content }}</p>
 
           <div v-if="(post as any).attachment && (post as any).attachment.name" style="margin-top:8px">
-              <button @click="showAttachment(post)" class="btn-secondary">📎 Voir la pièce jointe</button>
-              <button
-                @click="() => { if(confirm('Supprimer la pièce jointe ?')) removeAttachment(post._id!, (post as any).attachment.name) }"
-                class="btn-delete"
-                style="margin-left:8px"
-              >
-                🗑️ Suppr. PJ
-              </button>
+            <button @click="showAttachment(post)" class="btn-secondary">📎 Voir la pièce jointe</button>
+            <button
+              @click="() => { if(confirm('Supprimer la pièce jointe ?')) removeAttachment(post._id!, (post as any).attachment.name) }"
+              class="btn-delete"
+              style="margin-left:8px"
+            >
+              🗑️ Suppr. PJ
+            </button>
           </div>
 
           <p v-if="firstCommentsByPost[post._id!]">
             <strong>1er commentaire :</strong>
-            {{ firstCommentsByPost[post._id!]?.author }} –
-            {{ firstCommentsByPost[post._id!]?.content }}
+            {{ firstCommentsByPost[post._id!]?.author }} – {{ firstCommentsByPost[post._id!]?.content }}
           </p>
 
           <div class="post-actions">
             <button @click="startEdit(post)" class="btn-edit">✏️ Modifier</button>
-            <button @click="deleteDocument(post._id!, post._rev!)" class="btn-delete">
-              🗑️ Supprimer
-            </button>
+            <button @click="deleteDocument(post._id!, post._rev!)" class="btn-delete">🗑️ Supprimer</button>
             <button @click="like(post)" class="btn-like">👍 {{ post.likes || 0 }}</button>
-            <button
-              v-if="currentPostId !== post._id"
-              @click="showComments(post._id!)"
-              class="btn-comment"
-            >
+            <button v-if="currentPostId !== post._id" @click="showComments(post._id!)" class="btn-comment">
               💬 Voir tous les commentaires
             </button>
           </div>
         </div>
 
         <div v-else class="edit-mode">
-  <h3>✏️ Modifier le document</h3>
+          <h3>✏️ Modifier le document</h3>
 
-  <div class="form-grid">
-    <div class="form-group">
-      <label>Prénom</label>
-      <input v-model="editingPost.name.first" required />
-    </div>
-    <div class="form-group">
-      <label>Nom</label>
-      <input v-model="editingPost.name.last" />
-    </div>
-  </div>
-
-  <div class="form-group">
-    <label>Email</label>
-    <input v-model="editingPost.email" type="email" required />
-  </div>
-
-  <div class="form-group">
-    <label>Contenu</label>
-    <textarea v-model="editingPost.content" rows="3"></textarea>
-  </div>
-  <div class="form-group">
-    <label>Pièce jointe (optionnelle)</label>
-    <input type="file" @change="handleFileChange" />
-
-    <div v-if="attachmentPreview" style="margin-top:8px">
-      <strong>Aperçu:</strong>
-      <div style="margin-top:6px">
-        <img
-          v-if="attachmentPreviewType && attachmentPreviewType.startsWith('image/')"
-          :src="attachmentPreview"
-          alt="preview"
-          style="max-width:200px; max-height:150px;"
-        />
-        <a v-else :href="attachmentPreview" target="_blank">
-          Ouvrir la pièce jointe
-        </a>
-      </div>
-    </div>
-  </div>
-
-  <div class="edit-actions">
-    <button @click="updateDocument()" class="btn-save">✓ Enregistrer</button>
-    <button @click="cancelEdit()" class="btn-cancel">✕ Annuler</button>
-  </div>
-</div>
+          <div class="form-grid">
+            <div class="form-group">
+              <label>Prénom</label>
+              <input v-model="editingPost.name.first" required />
+            </div>
+            <div class="form-group">
+              <label>Nom</label>
+              <input v-model="editingPost.name.last" />
+            </div>
+          </div>
 
           <div class="form-group">
-  <label>Pièce jointe (optionnelle)</label>
-  <input type="file" @change="handleFileChange" />
+            <label>Email</label>
+            <input v-model="editingPost.email" type="email" required />
+          </div>
 
-  <div v-if="attachmentPreview" style="margin-top:8px">
-    <strong>Aperçu:</strong>
-    <div style="margin-top:6px">
-      <img
-        v-if="attachmentPreviewType && attachmentPreviewType.startsWith('image/')"
-        :src="attachmentPreview"
-        alt="preview"
-        style="max-width:200px; max-height:150px;"
-      />
-      <a v-else :href="attachmentPreview" target="_blank">Ouvrir la pièce jointe</a>
-    </div>
-  </div>
-</div>
-            <div class="form-group">
-              <label>Pièce jointe (optionnelle)</label>
-              <input type="file" @change="handleFileChange" />
-                <div v-if="attachmentPreview" style="margin-top:8px">
-                <strong>Aperçu:</strong>
-                <div style="margin-top:6px">
-                  <img v-if="attachmentPreviewType && attachmentPreviewType.startsWith('image/')" :src="attachmentPreview" alt="preview" style="max-width:200px; max-height:150px;" />
-                  <a v-else :href="attachmentPreview" target="_blank">Ouvrir la pièce jointe</a>
-                </div>
+          <div class="form-group">
+            <label>Contenu</label>
+            <textarea v-model="editingPost.content" rows="3"></textarea>
+          </div>
+
+          <div class="form-group">
+            <label>Pièce jointe (optionnelle)</label>
+            <input type="file" @change="handleFileChange" />
+            <div v-if="attachmentPreview" style="margin-top:8px">
+              <strong>Aperçu:</strong>
+              <div style="margin-top:6px">
+                <img
+                  v-if="attachmentPreviewType && attachmentPreviewType.startsWith('image/')"
+                  :src="attachmentPreview"
+                  alt="preview"
+                  style="max-width:200px; max-height:150px;"
+                />
+                <a v-else :href="attachmentPreview" target="_blank">Ouvrir la pièce jointe</a>
               </div>
             </div>
+          </div>
+
           <div class="edit-actions">
             <button @click="updateDocument()" class="btn-save">✓ Enregistrer</button>
             <button @click="cancelEdit()" class="btn-cancel">✕ Annuler</button>
@@ -876,23 +820,14 @@ onMounted(() => {
               <span>{{ comment.content }}</span>
               <div class="comment-actions">
                 <button @click="startEditComment(comment)" class="btn-icon">✏️</button>
-                <button @click="deleteComment(comment._id!, comment._rev!)" class="btn-icon">
-                  🗑️
-                </button>
+                <button @click="deleteComment(comment._id!, comment._rev!)" class="btn-icon">🗑️</button>
               </div>
             </div>
           </div>
           <form @submit.prevent="saveComment(post._id!)" class="comment-form">
             <input v-model="commentAuthor" placeholder="Votre nom" class="comment-author" />
-            <input
-              v-model="newCommentContent"
-              placeholder="Votre commentaire..."
-              required
-              class="comment-input"
-            />
-            <button type="submit" class="btn-primary">
-              {{ commentEditing ? '✓' : '➤' }}
-            </button>
+            <input v-model="newCommentContent" placeholder="Votre commentaire..." required class="comment-input" />
+            <button type="submit" class="btn-primary">{{ commentEditing ? '✓' : '➤' }}</button>
             <button
               v-if="commentEditing"
               @click="
@@ -911,11 +846,17 @@ onMounted(() => {
       </article>
     </div>
   </div>
+
   <div v-if="showInlinePreview" class="inline-preview-backdrop" @click.self="closeInlinePreview">
     <div class="inline-preview">
       <button class="btn-cancel" style="position:absolute;right:8px;top:8px" @click="closeInlinePreview">✕</button>
       <div style="padding:12px;">
-        <img v-if="inlinePreviewType && inlinePreviewType.startsWith('image/')" :src="inlinePreviewUrl" alt="preview" style="max-width:90vw; max-height:80vh;" />
+        <img
+          v-if="inlinePreviewType && inlinePreviewType.startsWith('image/')"
+          :src="inlinePreviewUrl"
+          alt="preview"
+          style="max-width:90vw; max-height:80vh;"
+        />
         <div v-else>
           <a :href="inlinePreviewUrl" target="_blank">Ouvrir la pièce jointe</a>
         </div>
@@ -932,8 +873,7 @@ onMounted(() => {
 body {
   margin: 0;
   padding: 0;
-  font-family:
-    -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
   background: #f5f7fa;
 }
 
@@ -1419,12 +1359,13 @@ button {
 .inline-preview-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(0,0,0,0.45);
+  background: rgba(0, 0, 0, 0.45);
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: 9999;
 }
+
 .inline-preview {
   background: white;
   border-radius: 8px;
