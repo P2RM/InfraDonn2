@@ -62,6 +62,112 @@ const commentList = ref<Comment[]>([])
 const currentPostId = ref<string | null>(null)
 const isPopulating = ref(false)
 
+const attachmentFile = ref<File | null>(null)
+const attachmentPreview = ref<string | null>(null)
+const attachmentPreviewByPost = ref<Record<string, string | null>>({})
+const attachmentUploading = ref(false)
+const attachmentPreviewType = ref<string | null>(null)
+const attachmentPreviewByPostType = ref<Record<string, string | null>>({})
+const inlinePreviewType = ref<string | null>(null)
+
+const handleFileChange = (e: Event) => {
+  const input = e.target as HTMLInputElement
+  const file = input.files && input.files[0] ? input.files[0] : null
+  if (!file) {
+    clearSelectedAttachment()
+    return
+  }
+
+  attachmentFile.value = file
+  if (attachmentPreview.value) URL.revokeObjectURL(attachmentPreview.value)
+  attachmentPreview.value = URL.createObjectURL(file)
+  attachmentPreviewType.value = file.type || null
+}
+
+const clearSelectedAttachment = () => {
+  if (attachmentPreview.value) {
+    URL.revokeObjectURL(attachmentPreview.value)
+    attachmentPreview.value = null
+  }
+  attachmentFile.value = null
+  attachmentPreviewType.value = null
+}
+
+const fetchAttachmentPreviewFor = async (postId: string, attachmentName: string) => {
+  if (!postsStorage.value) return null
+  try {
+    const blob: Blob = await (postsStorage.value as any).getAttachment(postId, attachmentName)
+    if (!blob) return null
+
+    if (attachmentPreviewByPost.value[postId]) URL.revokeObjectURL(attachmentPreviewByPost.value[postId]!)
+    const url = URL.createObjectURL(blob)
+    attachmentPreviewByPost.value[postId] = url
+    attachmentPreviewByPostType.value[postId] = blob.type || null
+    return { url, type: blob.type || null }
+  } catch (err) {
+    console.error('Erreur récupération attachment', err)
+    return null
+  }
+}
+
+const showAttachment = async (post: Post) => {
+  if (!post._id) return
+  const att: any = (post as any).attachment
+  if (!att?.name) return
+
+  const res = await fetchAttachmentPreviewFor(post._id, att.name)
+  const type = res?.type || att.content_type || null
+
+  if (res?.url) openInlinePreview(res.url, type)
+  else alert('Impossible de récupérer la pièce jointe')
+}
+
+const showInlinePreview = ref(false)
+const inlinePreviewUrl = ref<string | null>(null)
+const openInlinePreview = (url: string, type: string | null) => {
+  inlinePreviewUrl.value = url
+  inlinePreviewType.value = type
+  showInlinePreview.value = true
+}
+
+const closeInlinePreview = () => {
+  inlinePreviewUrl.value = null
+  inlinePreviewType.value = null
+  showInlinePreview.value = false
+}
+
+
+const removeAttachment = async (postId: string, attachmentName: string) => {
+  if (!postsStorage.value) return
+  try {
+    const doc: any = await postsStorage.value.get(postId)
+    await (postsStorage.value as any).removeAttachment(postId, attachmentName, doc._rev)
+    const doc2: any = await postsStorage.value.get(postId)
+    if (doc2.attachment) delete doc2.attachment
+    await postsStorage.value.put(doc2)
+    await fetchData()
+    alert('Pièce jointe supprimée')
+  } catch (err) {
+    console.error('Erreur suppression attachment', err)
+    alert('Impossible de supprimer la pièce jointe')
+  }
+}
+
+const removeAttachmentForEditing = async () => {
+  if (!editingPost.value || !editingPost.value._id) return
+  const att: any = (editingPost.value as any).attachment
+  if (!att || !att.name) return
+  if (!confirm('Supprimer cette pièce jointe ?')) return
+  try {
+    await removeAttachment(editingPost.value._id, att.name)
+    const doc: any = await postsStorage.value!.get(editingPost.value._id)
+    editingPost.value._rev = doc._rev
+    clearSelectedAttachment()
+  } catch (err) {
+    console.error('Erreur removal editing', err)
+  }
+}
+
 const firstCommentsByPost = ref<Record<string, Comment | null>>({})
 
 const ensureIndexes = async () => {
@@ -243,7 +349,21 @@ const fetchData = async () => {
 
 const startEdit = (post: Post) => {
   editingPost.value = { ...post, name: { ...post.name } }
+  const att: any = (post as any).attachment
+
+  if (post._id && att?.name) {
+    ;(async () => {
+      const res = await fetchAttachmentPreviewFor(post._id!, att.name)
+      if (res) {
+        attachmentPreview.value = res.url
+        attachmentPreviewType.value = res.type || att.content_type || null
+      }
+    })()
+  } else {
+    clearSelectedAttachment()
+  }
 }
+
 const cancelEdit = () => {
   editingPost.value = null
 }
@@ -264,25 +384,48 @@ const deleteDocument = (docId: string, docRev: string) => {
     })
 }
 
-const updateDocument = () => {
+const updateDocument = async () => {
   if (!postsStorage.value) {
     console.warn('Base POSTS non initialisée')
     return
   }
-  if (!editingPost.value || !editingPost.value._id || !editingPost.value._rev) {
-    console.warn('⚠️ Le document doit avoir un _id et un _rev pour être mis à jour')
+  if (!editingPost.value || !editingPost.value._id) {
+    console.warn('⚠️ Le document doit avoir un _id pour être mis à jour')
     return
   }
-  postsStorage.value
-    .put(editingPost.value)
-    .then((response) => {
-      console.log('✅ Document mis à jour :', response)
-      fetchData()
-      editingPost.value = null
-    })
-    .catch((error) => {
-      console.error('❌ Erreur lors de la mise à jour du document :', error)
-    })
+  try {
+    const putRes: any = await postsStorage.value.put(editingPost.value)
+    let rev = putRes.rev
+
+    if (attachmentFile.value) {
+      try {
+        attachmentUploading.value = true
+        const file = attachmentFile.value
+        const putAtt: any = await (postsStorage.value as any).putAttachment(
+          editingPost.value._id,
+          file.name,
+          rev,
+          file,
+          file.type
+        )
+        const doc: any = await postsStorage.value.get(editingPost.value._id)
+        doc.attachment = { name: file.name, content_type: file.type }
+        const updated: any = await postsStorage.value.put(doc)
+        rev = updated.rev
+        clearSelectedAttachment()
+        console.log('✅ Attachment replaced:', putAtt)
+      } catch (err) {
+        console.error('❌ Erreur lors du remplacement de l attachment :', err)
+      } finally {
+        attachmentUploading.value = false
+      }
+    }
+
+    await fetchData()
+    editingPost.value = null
+  } catch (error) {
+    console.error('❌ Erreur lors de la mise à jour du document :', error)
+  }
 }
 
 const addDocument = () => {
@@ -306,11 +449,36 @@ const addDocument = () => {
     content: newPost.value.content,
     likes: 0,
   }
-  postsStorage.value
-    .post(postToAdd)
-    .then((response) => {
+  ;(async () => {
+    try {
+      const response: any = await postsStorage.value!.post(postToAdd)
       console.log('✅ Document ajouté :', response)
-      fetchData()
+
+      if (attachmentFile.value) {
+        try {
+          attachmentUploading.value = true
+          const file = attachmentFile.value
+          const putRes: any = await (postsStorage.value as any).putAttachment(
+            response.id,
+            file.name,
+            response.rev,
+            file,
+            file.type
+          )
+
+          const doc: any = await postsStorage.value.get(response.id)
+          doc.attachment = { name: file.name, content_type: file.type }
+          await postsStorage.value.put(doc)
+          clearSelectedAttachment()
+          console.log('✅ Attachment ajouté:', putRes)
+        } catch (err) {
+          console.error('❌ Erreur lors de l upload attachment :', err)
+        } finally {
+          attachmentUploading.value = false
+        }
+      }
+
+      await fetchData()
       newPost.value = {
         type: 'post',
         name: { first: '', last: '' },
@@ -320,10 +488,10 @@ const addDocument = () => {
         content: '',
         likes: 0,
       }
-    })
-    .catch((error) => {
+    } catch (error) {
       console.error("❌ Erreur lors de l'ajout du document :", error)
-    })
+    }
+  })()
 }
 
 const like = async (post: Post) => {
@@ -340,6 +508,32 @@ const like = async (post: Post) => {
 const showComments = async (postId: string) => {
   currentPostId.value = postId
   await fetchCommentsFor(postId)
+}
+
+const createTestDocWithAttachment = async () => {
+  if (!postsStorage.value) return
+  try {
+    const doc: any = {
+      type: 'post',
+      name: { first: 'Test', last: 'Attachment' },
+      email: 'test@local',
+      tags: ['test', 'attachment'],
+      created_at: new Date().toISOString(),
+      content: 'Doc de test avec attachment',
+      likes: 0,
+    }
+    const res: any = await postsStorage.value.post(doc)
+    const blob = new Blob(['Bonjour, ceci est un test d attachment'], { type: 'text/plain' })
+    await (postsStorage.value as any).putAttachment(res.id, 'hello.txt', res.rev, blob, 'text/plain')
+    const doc2: any = await postsStorage.value.get(res.id)
+    doc2.attachment = { name: 'hello.txt', content_type: 'text/plain' }
+    await postsStorage.value.put(doc2)
+    await fetchData()
+    alert('Document de test créé')
+  } catch (err) {
+    console.error('Erreur création test attachment', err)
+    alert('Erreur création test')
+  }
 }
 
 const fetchCommentsFor = async (postId: string) => {
@@ -504,6 +698,7 @@ onMounted(() => {
         </button>
       </div>
       <button @click="syncDatabases" class="btn-sync">🔄 Synchroniser</button>
+      <button @click="createTestDocWithAttachment" class="btn-secondary">🧪 Test att.</button>
       <button @click="deleteAllDocuments" class="btn-danger">🗑️ Tout supprimer</button>
     </div>
 
@@ -531,6 +726,17 @@ onMounted(() => {
           placeholder="Entrez votre contenu..."
         ></textarea>
       </div>
+          <div class="form-group">
+            <label>Pièce jointe (optionnelle)</label>
+            <input type="file" @change="handleFileChange" />
+            <div v-if="attachmentPreview" style="margin-top:8px">
+              <strong>Aperçu:</strong>
+              <div style="margin-top:6px">
+                <img v-if="attachmentPreviewType && attachmentPreviewType.startsWith('image/')" :src="attachmentPreview" alt="preview" style="max-width:200px; max-height:150px;" />
+                <a v-else :href="attachmentPreview" target="_blank">Ouvrir la pièce jointe</a>
+              </div>
+            </div>
+          </div>
       <button type="submit" class="btn-primary">Ajouter</button>
     </form>
 
@@ -546,6 +752,17 @@ onMounted(() => {
           <p class="post-email">{{ post.email }}</p>
           <p class="post-tags">{{ post.tags.join(', ') }}</p>
           <p v-if="post.content" class="post-content">{{ post.content }}</p>
+
+          <div v-if="(post as any).attachment && (post as any).attachment.name" style="margin-top:8px">
+              <button @click="showAttachment(post)" class="btn-secondary">📎 Voir la pièce jointe</button>
+              <button
+                @click="() => { if(confirm('Supprimer la pièce jointe ?')) removeAttachment(post._id!, (post as any).attachment.name) }"
+                class="btn-delete"
+                style="margin-left:8px"
+              >
+                🗑️ Suppr. PJ
+              </button>
+          </div>
 
           <p v-if="firstCommentsByPost[post._id!]">
             <strong>1er commentaire :</strong>
@@ -589,6 +806,17 @@ onMounted(() => {
             <label>Contenu</label>
             <textarea v-model="editingPost.content" rows="3"></textarea>
           </div>
+            <div class="form-group">
+              <label>Pièce jointe (optionnelle)</label>
+              <input type="file" @change="handleFileChange" />
+                <div v-if="attachmentPreview" style="margin-top:8px">
+                <strong>Aperçu:</strong>
+                <div style="margin-top:6px">
+                  <img v-if="attachmentPreviewType && attachmentPreviewType.startsWith('image/')" :src="attachmentPreview" alt="preview" style="max-width:200px; max-height:150px;" />
+                  <a v-else :href="attachmentPreview" target="_blank">Ouvrir la pièce jointe</a>
+                </div>
+              </div>
+            </div>
           <div class="edit-actions">
             <button @click="updateDocument()" class="btn-save">✓ Enregistrer</button>
             <button @click="cancelEdit()" class="btn-cancel">✕ Annuler</button>
@@ -635,6 +863,17 @@ onMounted(() => {
           </form>
         </div>
       </article>
+    </div>
+  </div>
+  <div v-if="showInlinePreview" class="inline-preview-backdrop" @click.self="closeInlinePreview">
+    <div class="inline-preview">
+      <button class="btn-cancel" style="position:absolute;right:8px;top:8px" @click="closeInlinePreview">✕</button>
+      <div style="padding:12px;">
+        <img v-if="inlinePreviewType && inlinePreviewType.startsWith('image/')" :src="inlinePreviewUrl" alt="preview" style="max-width:90vw; max-height:80vh;" />
+        <div v-else>
+          <a :href="inlinePreviewUrl" target="_blank">Ouvrir la pièce jointe</a>
+        </div>
+      </div>
     </div>
   </div>
 </template>
@@ -1129,5 +1368,22 @@ button {
 
 .post-card p {
   color: #000;
+}
+
+.inline-preview-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+}
+.inline-preview {
+  background: white;
+  border-radius: 8px;
+  max-width: 95vw;
+  max-height: 90vh;
+  position: relative;
 }
 </style>
