@@ -1,9 +1,15 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import PouchDB from 'pouchdb'
+<<<<<<< HEAD
 import PouchDBFind from 'pouchdb-find'
 
 PouchDB.plugin(PouchDBFind)
+=======
+import pouchdbFind from 'pouchdb-find'
+
+PouchDB.plugin(pouchdbFind)
+>>>>>>> 25809db (gestion conflit 1)
 
 declare interface Post {
   _id?: string
@@ -18,6 +24,7 @@ declare interface Post {
   created_at: string
   content?: string
   likes?: number
+  attachment?: { name: string; content_type: string }
 }
 
 declare interface Comment {
@@ -62,6 +69,7 @@ const commentList = ref<Comment[]>([])
 const currentPostId = ref<string | null>(null)
 const isPopulating = ref(false)
 
+<<<<<<< HEAD
 const attachmentFile = ref<File | null>(null)
 const attachmentPreview = ref<string | null>(null)
 const attachmentPreviewByPost = ref<Record<string, string | null>>({})
@@ -189,6 +197,52 @@ const ensureIndexes = async () => {
 }
 
 const toggleMode = async () => {
+=======
+const firstCommentsByPost = ref<Record<string, Comment | null>>({})
+
+const attachmentFile = ref<File | null>(null)
+const attachmentPreview = ref<string | null>(null)
+const attachmentPreviewType = ref<string | null>(null)
+const attachmentUploading = ref(false)
+
+const showInlinePreview = ref(false)
+const inlinePreviewUrl = ref<string | null>(null)
+const inlinePreviewType = ref<string | null>(null)
+
+const handleFileChange = (e: Event) => {
+  const input = e.target as HTMLInputElement
+  const file = input.files?.[0] || null
+  if (!file) {
+    clearSelectedAttachment()
+    return
+  }
+  attachmentFile.value = file
+  if (attachmentPreview.value) URL.revokeObjectURL(attachmentPreview.value)
+  attachmentPreview.value = URL.createObjectURL(file)
+  attachmentPreviewType.value = file.type || null
+}
+
+const clearSelectedAttachment = () => {
+  if (attachmentPreview.value) URL.revokeObjectURL(attachmentPreview.value)
+  attachmentFile.value = null
+  attachmentPreview.value = null
+  attachmentPreviewType.value = null
+}
+
+const openInlinePreview = (url: string, type: string | null) => {
+  inlinePreviewUrl.value = url
+  inlinePreviewType.value = type
+  showInlinePreview.value = true
+}
+
+const closeInlinePreview = () => {
+  inlinePreviewUrl.value = null
+  inlinePreviewType.value = null
+  showInlinePreview.value = false
+}
+
+const toggleMode = () => {
+>>>>>>> 25809db (gestion conflit 1)
   isOnline.value = !isOnline.value
   postsStorage.value = isOnline.value ? remotePostsDB.value : localPostsDB.value
   commentsStorage.value = isOnline.value ? remoteCommentsDB.value : localCommentsDB.value
@@ -238,8 +292,12 @@ const populateFactory = async (nb = 100) => {
         likes: Math.floor(Math.random() * 20),
       })
     }
+<<<<<<< HEAD
     console.log('👉 bulkDocs start', nb)
     const res = await postsStorage.value.bulkDocs(bulkDocs)
+=======
+    const res = await storage.value.bulkDocs(bulkDocs)
+>>>>>>> 25809db (gestion conflit 1)
     console.log('✅ bulkDocs ok', res)
     await fetchData()
   } catch (err) {
@@ -286,6 +344,7 @@ const initDatabase = async () => {
 
 const deleteAllDocuments = async () => {
   try {
+<<<<<<< HEAD
     if (postsStorage.value) {
       const result = await postsStorage.value.allDocs({ include_docs: true })
       const toDelete = result.rows
@@ -293,6 +352,16 @@ const deleteAllDocuments = async () => {
         .filter((doc) => !!doc && !doc._id?.startsWith('_'))
         .map((doc: any) => ({ ...doc, _deleted: true }))
       if (toDelete.length) await postsStorage.value.bulkDocs(toDelete)
+=======
+    const result = await storage.value.allDocs({ include_docs: true })
+    const toDelete = result.rows
+      .map((row) => row.doc)
+      .filter((doc) => !!doc && !doc._id?.startsWith('_'))
+      .map((doc) => ({ ...(doc as any), _deleted: true }))
+    if (toDelete.length) {
+      await storage.value.bulkDocs(toDelete)
+      fetchData()
+>>>>>>> 25809db (gestion conflit 1)
     }
 
     if (commentsStorage.value) {
@@ -333,13 +402,14 @@ const fetchData = async () => {
       sort: [{ created_at: 'desc' }],
     })
     postsData.value = (result.docs as Post[]).filter((doc) => !doc._id?.startsWith('_'))
+<<<<<<< HEAD
     console.log('✅ Données POSTS récupérées (Mango) :', postsData.value)
+=======
+>>>>>>> 25809db (gestion conflit 1)
 
     firstCommentsByPost.value = {}
     for (const post of postsData.value) {
-      if (post._id) {
-        await fetchFirstCommentForPost(post._id)
-      }
+      if (post._id) await fetchFirstCommentForPost(post._id)
     }
   } catch (error) {
     console.error('❌ Erreur fetchData Mango :', error)
@@ -348,6 +418,7 @@ const fetchData = async () => {
 
 const startEdit = (post: Post) => {
   editingPost.value = { ...post, name: { ...post.name } }
+<<<<<<< HEAD
   const att: any = (post as any).attachment
 
   if (post._id && att?.name) {
@@ -361,12 +432,17 @@ const startEdit = (post: Post) => {
   } else {
     clearSelectedAttachment()
   }
+=======
+  clearSelectedAttachment()
+>>>>>>> 25809db (gestion conflit 1)
 }
 
 const cancelEdit = () => {
   editingPost.value = null
+  clearSelectedAttachment()
 }
 
+<<<<<<< HEAD
 const deleteDocument = (docId: string, docRev: string) => {
   if (!postsStorage.value) {
     console.warn('Base POSTS non initialisée')
@@ -432,10 +508,73 @@ const addDocument = () => {
     console.warn('Base POSTS non initialisée')
     return
   }
+=======
+const deleteDocument = async (docId: string) => {
+  if (!storage.value) {
+    console.warn('Base de données non initialisée')
+    return
+  }
+  try {
+    const current: any = await storage.value.get(docId)
+    await storage.value.remove(docId, current._rev)
+    await fetchData()
+  } catch (error) {
+    console.error('❌ Erreur lors de la suppression du document :', error)
+    alert('Impossible de supprimer (conflit ou _rev invalide).')
+  }
+}
+
+const updateDocument = async () => {
+  if (!storage.value) return
+  if (!editingPost.value || !editingPost.value._id) return
+
+  try {
+    const current: any = await storage.value.get(editingPost.value._id)
+
+    const toSave: any = {
+      ...current,
+      ...editingPost.value,
+      name: { ...current.name, ...editingPost.value.name },
+      _id: current._id,
+      _rev: current._rev,
+    }
+
+    const putRes: any = await storage.value.put(toSave)
+    const rev = putRes.rev
+
+    if (attachmentFile.value) {
+      try {
+        attachmentUploading.value = true
+        const file = attachmentFile.value
+
+        await (storage.value as any).putAttachment(toSave._id, file.name, rev, file, file.type)
+
+        const doc: any = await storage.value.get(toSave._id)
+        doc.attachment = { name: file.name, content_type: file.type }
+        await storage.value.put(doc)
+
+        clearSelectedAttachment()
+      } finally {
+        attachmentUploading.value = false
+      }
+    }
+
+    await fetchData()
+    editingPost.value = null
+  } catch (error) {
+    console.error('❌ Erreur lors de la mise à jour du document :', error)
+    alert('Impossible de modifier (conflit ou _rev invalide). Réessaie.')
+  }
+}
+
+const addDocument = async () => {
+  if (!storage.value) return
+>>>>>>> 25809db (gestion conflit 1)
   if (!newPost.value.name.first || !newPost.value.email) {
     alert('Prénom et email obligatoires')
     return
   }
+
   const postToAdd: Post = {
     type: 'post',
     name: {
@@ -448,6 +587,7 @@ const addDocument = () => {
     content: newPost.value.content,
     likes: 0,
   }
+<<<<<<< HEAD
   ;(async () => {
     try {
       const response: any = await postsStorage.value!.post(postToAdd)
@@ -499,6 +639,55 @@ const like = async (post: Post) => {
   try {
     const nbLikes = typeof post.likes === 'number' ? post.likes + 1 : 1
     await postsStorage.value.put({ ...post, likes: nbLikes })
+=======
+
+  try {
+    const response: any = await storage.value.post(postToAdd)
+
+    if (attachmentFile.value) {
+      try {
+        attachmentUploading.value = true
+        const file = attachmentFile.value
+        await (storage.value as any).putAttachment(
+          response.id,
+          file.name,
+          response.rev,
+          file,
+          file.type,
+        )
+
+        const doc: any = await storage.value.get(response.id)
+        doc.attachment = { name: file.name, content_type: file.type }
+        await storage.value.put(doc)
+
+        clearSelectedAttachment()
+      } finally {
+        attachmentUploading.value = false
+      }
+    }
+
+    await fetchData()
+    newPost.value = {
+      type: 'post',
+      name: { first: '', last: '' },
+      email: '',
+      tags: [],
+      created_at: '',
+      content: '',
+      likes: 0,
+    }
+  } catch (error) {
+    console.error("❌ Erreur lors de l'ajout du document :", error)
+  }
+}
+
+const like = async (post: Post) => {
+  if (!storage.value || !post._id) return
+  try {
+    const current: any = await storage.value.get(post._id)
+    const nbLikes = typeof current.likes === 'number' ? current.likes + 1 : 1
+    await storage.value.put({ ...current, likes: nbLikes })
+>>>>>>> 25809db (gestion conflit 1)
     fetchData()
   } catch (error) {
     console.error('Erreur like:', error)
@@ -537,6 +726,7 @@ const createTestDocWithAttachment = async () => {
 }
 
 const fetchCommentsFor = async (postId: string) => {
+<<<<<<< HEAD
   if (!commentsStorage.value) return
   await ensureIndexes()
   const result = await (commentsStorage.value as any).find({
@@ -544,6 +734,14 @@ const fetchCommentsFor = async (postId: string) => {
       type: 'comment',
       postId,
     },
+=======
+  if (!storage.value) return
+  await (storage.value as any).createIndex({
+    index: { fields: ['type', 'postId', 'created_at'] },
+  })
+  const result = await (storage.value as any).find({
+    selector: { type: 'comment', postId },
+>>>>>>> 25809db (gestion conflit 1)
     sort: [{ created_at: 'asc' }],
   })
   commentList.value = result.docs as Comment[]
@@ -553,8 +751,13 @@ const saveComment = async (postId: string) => {
   if (!commentsStorage.value) return
   try {
     if (commentEditing.value) {
+<<<<<<< HEAD
       const doc = await commentsStorage.value.get(commentEditing.value._id)
       await commentsStorage.value.put({ ...doc, content: newCommentContent.value })
+=======
+      const doc = await storage.value.get(commentEditing.value._id)
+      await storage.value.put({ ...(doc as any), content: newCommentContent.value })
+>>>>>>> 25809db (gestion conflit 1)
       commentEditing.value = null
       newCommentContent.value = ''
     } else {
@@ -596,8 +799,13 @@ const searchPosts = async () => {
   if (!postsStorage.value) return
   const keyword = searchQuery.value.trim()
   if (!keyword) return fetchData()
+<<<<<<< HEAD
   await ensureIndexes()
   const result = await (postsStorage.value as any).find({
+=======
+  await (storage.value as any).createIndex({ index: { fields: ['type', 'content'] } })
+  const result = await (storage.value as any).find({
+>>>>>>> 25809db (gestion conflit 1)
     selector: {
       type: 'post',
       content: { $regex: keyword },
@@ -617,24 +825,84 @@ const sortByLikes = async () => {
   postsData.value = result.docs as Post[]
 }
 
+<<<<<<< HEAD
 const syncDatabases = async () => {
   if (!localPostsDB.value || !remotePostsDB.value || !localCommentsDB.value || !remoteCommentsDB.value) {
+=======
+const resolveConflicts = async (source: 'local' | 'remote') => {
+  const from = source === 'local' ? localDB.value : remoteDB.value
+  const to = source === 'local' ? remoteDB.value : localDB.value
+  if (!from || !to) return
+  const docs = await from.allDocs({ include_docs: true })
+  const clean = docs.rows.map((r) => r.doc).filter((d) => d && !d._id?.startsWith('_'))
+  await to.bulkDocs(clean as any[])
+}
+
+const syncDatabases = async () => {
+  if (!localDB.value || !remoteDB.value) {
+>>>>>>> 25809db (gestion conflit 1)
     alert('Bases non initialisées')
     return
   }
   try {
+<<<<<<< HEAD
     await localPostsDB.value.sync(remotePostsDB.value, { live: false, retry: false })
     await localCommentsDB.value.sync(remoteCommentsDB.value, { live: false, retry: false })
+=======
+    const result: any = await localDB.value.sync(remoteDB.value)
+    const hasErrors =
+      (result?.push?.errors?.length || 0) > 0 || (result?.pull?.errors?.length || 0) > 0
+    if (hasErrors) {
+      const useRemote = confirm(
+        'Conflit détecté entre la base locale et la base distante.\n\nOK = restaurer depuis la sauvegarde EN LIGNE\nAnnuler = restaurer depuis la sauvegarde LOCALE',
+      )
+      await resolveConflicts(useRemote ? 'remote' : 'local')
+      await localDB.value.sync(remoteDB.value)
+    }
+>>>>>>> 25809db (gestion conflit 1)
     fetchData()
     alert('Synchronisation terminée avec succès!')
   } catch (err) {
     console.error('❌ Erreur lors de la synchronisation:', err)
     alert('Erreur lors de la synchronisation')
   }
+<<<<<<< HEAD
+=======
+}
+
+const showAttachment = async (post: Post) => {
+  if (!storage.value || !post._id || !post.attachment?.name) return
+  try {
+    const blob: Blob = await (storage.value as any).getAttachment(post._id, post.attachment.name)
+    const url = URL.createObjectURL(blob)
+    openInlinePreview(url, blob.type || post.attachment.content_type || null)
+  } catch (e) {
+    console.error('Erreur récupération attachment', e)
+    alert('Impossible de récupérer la pièce jointe')
+  }
+}
+
+const removeAttachment = async (post: Post) => {
+  if (!storage.value || !post._id || !post.attachment?.name) return
+  if (!confirm('Supprimer la pièce jointe ?')) return
+  try {
+    const current: any = await storage.value.get(post._id)
+
+    await (storage.value as any).removeAttachment(post._id, post.attachment.name, current._rev)
+
+    const doc: any = await storage.value.get(post._id)
+    delete doc.attachment
+    await storage.value.put(doc)
+
+    await fetchData()
+  } catch (e) {
+    console.error('Erreur suppression attachment', e)
+    alert('Impossible de supprimer la pièce jointe')
+  }
+>>>>>>> 25809db (gestion conflit 1)
 }
 
 onMounted(() => {
-  console.log('=> Composant initialisé')
   initDatabase()
   fetchData()
 })
@@ -689,7 +957,7 @@ onMounted(() => {
     </div>
 
     <form @submit.prevent="addDocument" class="add-form">
-      <h3>➕ Nouveau document</h3>
+      <h3>➕ Nouveau documents</h3>
       <div class="form-grid">
         <div class="form-group">
           <label>Prénom</label>
@@ -712,13 +980,20 @@ onMounted(() => {
       <div class="form-group">
         <label>Pièce jointe (optionnelle)</label>
         <input type="file" @change="handleFileChange" />
+<<<<<<< HEAD
         <div v-if="attachmentPreview" style="margin-top:8px">
           <strong>Aperçu:</strong>
           <div style="margin-top:6px">
+=======
+        <div v-if="attachmentPreview" style="margin-top: 8px">
+          <strong>Aperçu:</strong>
+          <div style="margin-top: 6px">
+>>>>>>> 25809db (gestion conflit 1)
             <img
               v-if="attachmentPreviewType && attachmentPreviewType.startsWith('image/')"
               :src="attachmentPreview"
               alt="preview"
+<<<<<<< HEAD
               style="max-width:200px; max-height:150px;"
             />
             <a v-else :href="attachmentPreview" target="_blank">Ouvrir la pièce jointe</a>
@@ -727,6 +1002,21 @@ onMounted(() => {
       </div>
 
       <button type="submit" class="btn-primary">Ajouter</button>
+=======
+              style="max-width: 200px; max-height: 150px"
+            />
+            <a v-else :href="attachmentPreview" target="_blank">Ouvrir la pièce jointe</a>
+          </div>
+          <div style="margin-top: 8px">
+            <button type="button" class="btn-clear" @click="clearSelectedAttachment">✕</button>
+          </div>
+        </div>
+      </div>
+
+      <button type="submit" class="btn-primary" :disabled="attachmentUploading">
+        {{ attachmentUploading ? 'Upload...' : 'Ajouter' }}
+      </button>
+>>>>>>> 25809db (gestion conflit 1)
     </form>
 
     <div class="posts">
@@ -740,6 +1030,7 @@ onMounted(() => {
           <p class="post-tags">{{ post.tags.join(', ') }}</p>
           <p v-if="post.content" class="post-content">{{ post.content }}</p>
 
+<<<<<<< HEAD
           <div v-if="(post as any).attachment && (post as any).attachment.name" style="margin-top:8px">
             <button @click="showAttachment(post)" class="btn-secondary">📎 Voir la pièce jointe</button>
             <button
@@ -747,6 +1038,13 @@ onMounted(() => {
               class="btn-delete"
               style="margin-left:8px"
             >
+=======
+          <div v-if="post.attachment?.name" style="margin-top: 8px">
+            <button @click="showAttachment(post)" class="btn-secondary">
+              📎 Voir la pièce jointe
+            </button>
+            <button @click="removeAttachment(post)" class="btn-delete" style="margin-left: 8px">
+>>>>>>> 25809db (gestion conflit 1)
               🗑️ Suppr. PJ
             </button>
           </div>
@@ -758,7 +1056,11 @@ onMounted(() => {
 
           <div class="post-actions">
             <button @click="startEdit(post)" class="btn-edit">✏️ Modifier</button>
+<<<<<<< HEAD
             <button @click="deleteDocument(post._id!, post._rev!)" class="btn-delete">🗑️ Supprimer</button>
+=======
+            <button @click="deleteDocument(post._id!)" class="btn-delete">🗑️ Supprimer</button>
+>>>>>>> 25809db (gestion conflit 1)
             <button @click="like(post)" class="btn-like">👍 {{ post.likes || 0 }}</button>
             <button v-if="currentPostId !== post._id" @click="showComments(post._id!)" class="btn-comment">
               💬 Voir tous les commentaires
@@ -793,22 +1095,40 @@ onMounted(() => {
           <div class="form-group">
             <label>Pièce jointe (optionnelle)</label>
             <input type="file" @change="handleFileChange" />
+<<<<<<< HEAD
             <div v-if="attachmentPreview" style="margin-top:8px">
               <strong>Aperçu:</strong>
               <div style="margin-top:6px">
+=======
+            <div v-if="attachmentPreview" style="margin-top: 8px">
+              <strong>Aperçu:</strong>
+              <div style="margin-top: 6px">
+>>>>>>> 25809db (gestion conflit 1)
                 <img
                   v-if="attachmentPreviewType && attachmentPreviewType.startsWith('image/')"
                   :src="attachmentPreview"
                   alt="preview"
+<<<<<<< HEAD
                   style="max-width:200px; max-height:150px;"
                 />
                 <a v-else :href="attachmentPreview" target="_blank">Ouvrir la pièce jointe</a>
               </div>
+=======
+                  style="max-width: 200px; max-height: 150px"
+                />
+                <a v-else :href="attachmentPreview" target="_blank">Ouvrir la pièce jointe</a>
+              </div>
+              <div style="margin-top: 8px">
+                <button type="button" class="btn-clear" @click="clearSelectedAttachment">✕</button>
+              </div>
+>>>>>>> 25809db (gestion conflit 1)
             </div>
           </div>
 
           <div class="edit-actions">
-            <button @click="updateDocument()" class="btn-save">✓ Enregistrer</button>
+            <button @click="updateDocument()" class="btn-save" :disabled="attachmentUploading">
+              {{ attachmentUploading ? 'Upload...' : '✓ Enregistrer' }}
+            </button>
             <button @click="cancelEdit()" class="btn-cancel">✕ Annuler</button>
           </div>
         </div>
@@ -826,7 +1146,16 @@ onMounted(() => {
           </div>
           <form @submit.prevent="saveComment(post._id!)" class="comment-form">
             <input v-model="commentAuthor" placeholder="Votre nom" class="comment-author" />
+<<<<<<< HEAD
             <input v-model="newCommentContent" placeholder="Votre commentaire..." required class="comment-input" />
+=======
+            <input
+              v-model="newCommentContent"
+              placeholder="Votre commentaire..."
+              required
+              class="comment-input"
+            />
+>>>>>>> 25809db (gestion conflit 1)
             <button type="submit" class="btn-primary">{{ commentEditing ? '✓' : '➤' }}</button>
             <button
               v-if="commentEditing"
@@ -849,13 +1178,28 @@ onMounted(() => {
 
   <div v-if="showInlinePreview" class="inline-preview-backdrop" @click.self="closeInlinePreview">
     <div class="inline-preview">
+<<<<<<< HEAD
       <button class="btn-cancel" style="position:absolute;right:8px;top:8px" @click="closeInlinePreview">✕</button>
       <div style="padding:12px;">
+=======
+      <button
+        class="btn-cancel"
+        style="position: absolute; right: 8px; top: 8px"
+        @click="closeInlinePreview"
+      >
+        ✕
+      </button>
+      <div style="padding: 12px">
+>>>>>>> 25809db (gestion conflit 1)
         <img
           v-if="inlinePreviewType && inlinePreviewType.startsWith('image/')"
           :src="inlinePreviewUrl"
           alt="preview"
+<<<<<<< HEAD
           style="max-width:90vw; max-height:80vh;"
+=======
+          style="max-width: 90vw; max-height: 80vh"
+>>>>>>> 25809db (gestion conflit 1)
         />
         <div v-else>
           <a :href="inlinePreviewUrl" target="_blank">Ouvrir la pièce jointe</a>
