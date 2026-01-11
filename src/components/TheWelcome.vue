@@ -71,6 +71,9 @@ const attachmentPreviewType = ref<string | null>(null)
 const attachmentPreviewByPostType = ref<Record<string, string | null>>({})
 const inlinePreviewType = ref<string | null>(null)
 
+const showInlinePreview = ref(false)
+const inlinePreviewUrl = ref<string | null>(null)
+
 const handleFileChange = (e: Event) => {
   const input = e.target as HTMLInputElement
   const file = input.files && input.files[0] ? input.files[0] : null
@@ -100,7 +103,9 @@ const fetchAttachmentPreviewFor = async (postId: string, attachmentName: string)
     const blob: Blob = await (postsStorage.value as any).getAttachment(postId, attachmentName)
     if (!blob) return null
 
-    if (attachmentPreviewByPost.value[postId]) URL.revokeObjectURL(attachmentPreviewByPost.value[postId]!)
+    if (attachmentPreviewByPost.value[postId]) {
+      URL.revokeObjectURL(attachmentPreviewByPost.value[postId]!)
+    }
     const url = URL.createObjectURL(blob)
     attachmentPreviewByPost.value[postId] = url
     attachmentPreviewByPostType.value[postId] = blob.type || null
@@ -109,6 +114,18 @@ const fetchAttachmentPreviewFor = async (postId: string, attachmentName: string)
     console.error('Erreur récupération attachment', err)
     return null
   }
+}
+
+const openInlinePreview = (url: string, type: string | null) => {
+  inlinePreviewUrl.value = url
+  inlinePreviewType.value = type
+  showInlinePreview.value = true
+}
+
+const closeInlinePreview = () => {
+  inlinePreviewUrl.value = null
+  inlinePreviewType.value = null
+  showInlinePreview.value = false
 }
 
 const showAttachment = async (post: Post) => {
@@ -123,28 +140,20 @@ const showAttachment = async (post: Post) => {
   else alert('Impossible de récupérer la pièce jointe')
 }
 
-const showInlinePreview = ref(false)
-const inlinePreviewUrl = ref<string | null>(null)
-const openInlinePreview = (url: string, type: string | null) => {
-  inlinePreviewUrl.value = url
-  inlinePreviewType.value = type
-  showInlinePreview.value = true
-}
+const removeAttachment = async (post: Post) => {
+  if (!postsStorage.value || !post._id) return
+  const att: any = (post as any).attachment
+  if (!att?.name) return
+  if (!confirm('Supprimer cette pièce jointe ?')) return
 
-const closeInlinePreview = () => {
-  inlinePreviewUrl.value = null
-  inlinePreviewType.value = null
-  showInlinePreview.value = false
-}
-
-const removeAttachment = async (postId: string, attachmentName: string) => {
-  if (!postsStorage.value) return
   try {
-    const doc: any = await postsStorage.value.get(postId)
-    await (postsStorage.value as any).removeAttachment(postId, attachmentName, doc._rev)
-    const doc2: any = await postsStorage.value.get(postId)
+    const current: any = await postsStorage.value.get(post._id)
+    await (postsStorage.value as any).removeAttachment(post._id, att.name, current._rev)
+
+    const doc2: any = await postsStorage.value.get(post._id)
     if (doc2.attachment) delete doc2.attachment
     await postsStorage.value.put(doc2)
+
     await fetchData()
     alert('Pièce jointe supprimée')
   } catch (err) {
@@ -159,10 +168,14 @@ const removeAttachmentForEditing = async () => {
   if (!att || !att.name) return
   if (!confirm('Supprimer cette pièce jointe ?')) return
   try {
-    await removeAttachment(editingPost.value._id, att.name)
-    const doc: any = await postsStorage.value!.get(editingPost.value._id)
-    editingPost.value._rev = doc._rev
+    const current: any = await postsStorage.value!.get(editingPost.value._id)
+    await (postsStorage.value as any).removeAttachment(editingPost.value._id, att.name, current._rev)
+    const doc2: any = await postsStorage.value!.get(editingPost.value._id)
+    if (doc2.attachment) delete doc2.attachment
+    await postsStorage.value!.put(doc2)
+    editingPost.value._rev = doc2._rev
     clearSelectedAttachment()
+    await fetchData()
   } catch (err) {
     console.error('Erreur removal editing', err)
   }
@@ -316,7 +329,7 @@ const fetchFirstCommentForPost = async (postId: string) => {
   await ensureIndexes()
   const result = await (commentsStorage.value as any).find({
     selector: { type: 'comment', postId },
-    sort: [{ created_at: 'asc' }],
+    sort: [{ created_at: 'desc' }], // dernier commentaire
     limit: 1,
   })
   firstCommentsByPost.value[postId] = result.docs[0] || null
@@ -367,20 +380,18 @@ const cancelEdit = () => {
   clearSelectedAttachment()
 }
 
-const deleteDocument = (docId: string, docRev: string) => {
+const deleteDocument = async (docId: string) => {
   if (!postsStorage.value) {
     console.warn('Base POSTS non initialisée')
     return
   }
-  postsStorage.value
-    .remove(docId, docRev)
-    .then((response) => {
-      console.log('✅ Document supprimé :', response)
-      fetchData()
-    })
-    .catch((error) => {
-      console.error('❌ Erreur lors de la suppression du document :', error)
-    })
+  try {
+    const current: any = await postsStorage.value.get(docId)
+    await postsStorage.value.remove(current._id, current._rev)
+    await fetchData()
+  } catch (error) {
+    console.error('❌ Erreur lors de la suppression du document :', error)
+  }
 }
 
 const updateDocument = async () => {
@@ -393,26 +404,37 @@ const updateDocument = async () => {
     return
   }
   try {
-    const putRes: any = await postsStorage.value.put(editingPost.value)
+    const current: any = await postsStorage.value.get(editingPost.value._id)
+
+    const toSave: any = {
+      ...current,
+      ...editingPost.value,
+      name: { ...current.name, ...editingPost.value.name },
+      _id: current._id,
+      _rev: current._rev,
+    }
+
+    const putRes: any = await postsStorage.value.put(toSave)
     let rev = putRes.rev
 
     if (attachmentFile.value) {
       try {
         attachmentUploading.value = true
         const file = attachmentFile.value
-        const putAtt: any = await (postsStorage.value as any).putAttachment(
-          editingPost.value._id,
+        await (postsStorage.value as any).putAttachment(
+          toSave._id,
           file.name,
           rev,
           file,
           file.type
         )
-        const doc: any = await postsStorage.value.get(editingPost.value._id)
+
+        const doc: any = await postsStorage.value.get(toSave._id)
         doc.attachment = { name: file.name, content_type: file.type }
         const updated: any = await postsStorage.value.put(doc)
         rev = updated.rev
         clearSelectedAttachment()
-        console.log('✅ Attachment replaced:', putAtt)
+        console.log('✅ Attachment replaced')
       } catch (err) {
         console.error('❌ Erreur lors du remplacement de l attachment :', err)
       } finally {
@@ -458,7 +480,7 @@ const addDocument = () => {
         try {
           attachmentUploading.value = true
           const file = attachmentFile.value
-          const putRes: any = await (postsStorage.value as any).putAttachment(
+          await (postsStorage.value as any).putAttachment(
             response.id,
             file.name,
             response.rev,
@@ -470,7 +492,7 @@ const addDocument = () => {
           doc.attachment = { name: file.name, content_type: file.type }
           await postsStorage.value.put(doc)
           clearSelectedAttachment()
-          console.log('✅ Attachment ajouté:', putRes)
+          console.log('✅ Attachment ajouté')
         } catch (err) {
           console.error('❌ Erreur lors de l upload attachment :', err)
         } finally {
@@ -496,10 +518,11 @@ const addDocument = () => {
 }
 
 const like = async (post: Post) => {
-  if (!postsStorage.value || !post._id || !post._rev) return
+  if (!postsStorage.value || !post._id) return
   try {
-    const nbLikes = typeof post.likes === 'number' ? post.likes + 1 : 1
-    await postsStorage.value.put({ ...post, likes: nbLikes })
+    const current: any = await postsStorage.value.get(post._id)
+    const nbLikes = typeof current.likes === 'number' ? current.likes + 1 : 1
+    await postsStorage.value.put({ ...current, likes: nbLikes })
     fetchData()
   } catch (error) {
     console.error('Erreur like:', error)
@@ -726,7 +749,9 @@ onMounted(() => {
         </div>
       </div>
 
-      <button type="submit" class="btn-primary">Ajouter</button>
+      <button type="submit" class="btn-primary" :disabled="attachmentUploading">
+        {{ attachmentUploading ? 'Upload...' : 'Ajouter' }}
+      </button>
     </form>
 
     <div class="posts">
@@ -742,23 +767,19 @@ onMounted(() => {
 
           <div v-if="(post as any).attachment && (post as any).attachment.name" style="margin-top:8px">
             <button @click="showAttachment(post)" class="btn-secondary">📎 Voir la pièce jointe</button>
-            <button
-              @click="() => { if(confirm('Supprimer la pièce jointe ?')) removeAttachment(post._id!, (post as any).attachment.name) }"
-              class="btn-delete"
-              style="margin-left:8px"
-            >
+            <button @click="removeAttachment(post)" class="btn-delete" style="margin-left:8px">
               🗑️ Suppr. PJ
             </button>
           </div>
 
           <p v-if="firstCommentsByPost[post._id!]">
-            <strong>1er commentaire :</strong>
+            <strong>Dernier commentaire :</strong>
             {{ firstCommentsByPost[post._id!]?.author }} – {{ firstCommentsByPost[post._id!]?.content }}
           </p>
 
           <div class="post-actions">
             <button @click="startEdit(post)" class="btn-edit">✏️ Modifier</button>
-            <button @click="deleteDocument(post._id!, post._rev!)" class="btn-delete">🗑️ Supprimer</button>
+            <button @click="deleteDocument(post._id!)" class="btn-delete">🗑️ Supprimer</button>
             <button @click="like(post)" class="btn-like">👍 {{ post.likes || 0 }}</button>
             <button v-if="currentPostId !== post._id" @click="showComments(post._id!)" class="btn-comment">
               💬 Voir tous les commentaires
@@ -803,6 +824,17 @@ onMounted(() => {
                   style="max-width:200px; max-height:150px;"
                 />
                 <a v-else :href="attachmentPreview" target="_blank">Ouvrir la pièce jointe</a>
+              </div>
+              <div style="margin-top:8px">
+                <button type="button" class="btn-clear" @click="clearSelectedAttachment">✕</button>
+                <button
+                  type="button"
+                  class="btn-delete"
+                  style="margin-left:8px"
+                  @click="removeAttachmentForEditing"
+                >
+                  🗑️ Suppr. PJ existante
+                </button>
               </div>
             </div>
           </div>
@@ -851,7 +883,9 @@ onMounted(() => {
 
   <div v-if="showInlinePreview" class="inline-preview-backdrop" @click.self="closeInlinePreview">
     <div class="inline-preview">
-      <button class="btn-cancel" style="position:absolute;right:8px;top:8px" @click="closeInlinePreview">✕</button>
+      <button class="btn-cancel" style="position:absolute;right:8px;top:8px" @click="closeInlinePreview">
+        ✕
+      </button>
       <div style="padding:12px;">
         <img
           v-if="inlinePreviewType && inlinePreviewType.startsWith('image/')"
