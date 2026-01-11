@@ -239,12 +239,8 @@ const populateFactory = async (nb = 100) => {
         likes: Math.floor(Math.random() * 20),
       })
     }
-<<<<<<< HEAD
     console.log('👉 bulkDocs start', nb)
     const res = await postsStorage.value.bulkDocs(bulkDocs)
-=======
-    const res = await storage.value.bulkDocs(bulkDocs)
->>>>>>> 25809db (gestion conflit 1)
     console.log('✅ bulkDocs ok', res)
     await fetchData()
   } catch (err) {
